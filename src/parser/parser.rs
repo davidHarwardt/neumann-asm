@@ -30,7 +30,7 @@ pub enum AstNode {
     Statement(Statement),
     Expression(Expression),
 
-    UntilCollection(Vec<AstNode>)
+    Collection(Vec<AstNode>)
 }
 
 pub enum ParserError {
@@ -51,165 +51,36 @@ pub trait Parser {
     }
 }
 
-// pub struct IncludeParser {}
-// impl Parser for IncludeParser {
-//     fn digest(&self, tokens: &[TokenType]) -> Result<AstNode, ParserError> {
-//         match tokens {
-//             [
-//                 TokenType::Char(Char::Percent),
-//                 TokenType::Keyword(Keyword::Include),
-//                 TokenType::StringLiteral(include_path),
-//                 ..
-//             ] => {
-//                 Ok(AstNode::Include(include_path.to_owned()))
-//             }
-//             _ => Err(ParserError::Default)
-//         }
-//     }
-// }
-
-macro_rules! parser {
-    ($name:ident, $res_node:expr, $($pattern:tt)*) => {
-        pub struct $name {}
-        impl Parser for $name {
-            fn digest(&self, tokens: &[TokenType]) -> Result<ParserResult, ParserError> {
-                match tokens {
-                    [$($pattern)*] => Ok($res_node),
-                    _ => Err(ParserError::Default("pattern diddnt match".to_owned())),
-                }
-            }
-        }
+// match parser
+macro_rules! match_parser {
+    () => {
+        
     };
 }
 
-parser! {
-    IncludeParser,
-    ParserResult {
-        node: AstNode::Include(include_path.to_owned()),
-        length: 3
-    },
-    
-    TokenType::Char(Char::Percent),
-    TokenType::Keyword(Keyword::Include),
-    TokenType::StringLiteral(include_path),
-    ..
+// sequence parser
+pub struct SequenceParserItem {
+    pub parser: Box<dyn Parser>,
+    pub keep: bool,
 }
-
-parser! {
-    DefineParser,
-    ParserResult {
-        node: AstNode::Define(define_name.to_owned(), Expression::Value(*define_value)),
-        length: 4,
-    },
-
-    TokenType::Char(Char::Percent),
-    TokenType::Keyword(Keyword::Define),
-    TokenType::Symbol(define_name),
-    TokenType::NumberLiteral(define_value),
-    ..
+pub struct SequenceParser {
+    pub parsers: Vec<SequenceParserItem>,
 }
-
-parser! {
-    MacroCreateParser,
-    {
-        let res = ParserUntil::new(|tok| match tok {
-            TokenType::Keyword(Keyword::End) => true,
-            _ => false,
-        }, StatementParser).digest(rest)?;
-
-        if let AstNode::UntilCollection(nodes) = res.node {
-            let nodes = nodes.iter().map(|node| if let AstNode::Statement(st) = node { st } else )
-            ParserResult {
-                node: AstNode::MacroCreate(macro_name, ),
-                length: res.length + 3 + 1,
-            }
-        } else {  }
-
-    },
-
-    TokenType::Keyword(Keyword::Macro),
-    TokenType::Symbol(macro_name),
-    TokenType::Char(Char::Bang),
-    rest @ ..
-}
-
-pub struct ExpressionParser {}
-impl Parser for ExpressionParser {
-    fn digest(&self, tokens: &[TokenType]) -> Result<AstNode, ParserError> {
-        match tokens {
-            [TokenType::NumberLiteral(v), ..] => { Ok(AstNode::Expression(Expression::Value(*v))) }
-            [TokenType::Symbol(v), ..] => { Ok(AstNode::Expression(Expression::SymbolValue(v.to_owned()))) }
-            _ => Err(ParserError::Default("expressions not supported".to_owned()))
-        }
-        // match tokens {
-        //     // parentheses
-        //     [TokenType::Brace(Brace::Round(BracketType::Opening)), ..] => {
-        //         let mut depth = 1;
-        //         let inner: Vec<TokenType> = tokens.iter()
-        //             .skip(1)
-        //             .take_while(|v| match v {
-        //                 TokenType::Brace(Brace::Round(BracketType::Closing)) => {
-        //                     depth -= 1;
-        //                     depth == 0
-        //                 },
-        //                 TokenType::Brace(Brace::Round(BracketType::Opening)) => {
-        //                     depth += 1;
-        //                     false
-        //                 }
-        //                 _ => true,
-        //             })
-        //             .map(|v| v.to_owned())
-        //             .collect();
-
-        //         // unbalanced brackets
-        //         if depth > 0 { return Err(ParserError::UnbalancedBracketsError); }
-
-        //         match self.digest(&inner)? {
-        //             AstNode::Expression(expr) => Ok(AstNode::Expression(expr)),
-        //             _ => Err(ParserError::Default("invalid AstNode".to_owned()))
-        //         }
-        //     }
-
-        //     // addition
-        //     [
-        //         TokenType::NumberLiteral(_) | TokenType::Symbol(_),
-        //         TokenType::Operator(Operator::Add),
-        //         TokenType::NumberLiteral(_) | TokenType::Symbol(_),
-        //     ] => {
-
-        //     }
-        // }
-    }
-}
-
-pub struct ParserUntil<T: Parser> {
-    parser: T,
-    stop_cb: fn(TokenType) -> bool,
-}
-impl<T: Parser> ParserUntil<T> {
-    fn new(stop_cb: fn(TokenType) -> bool, parser: T) -> Self {
-        Self {
-            stop_cb,
-            parser,
-        }
-    }
-}
-impl<T: Parser> Parser for ParserUntil<T> {
-
-
+impl Parser for SequenceParser {
     fn digest(&self, tokens: &[TokenType]) -> Result<ParserResult, ParserError> {
-        let mut nodes: Vec<AstNode> = Vec::new();
-        let mut length = 0;
-        let mut current = &tokens[..];
-        while current.len() > 0 && !(self.stop_cb)(current[0]) {
-            let parser_result = self.parser.digest(&current)?;
-            length += parser_result.length;
-            current = &tokens[length..];
+        let mut idx = 0;
+        let mut res_vec = Vec::new();
+
+        for parser in &self.parsers {
+            let res = parser.parser.digest(&tokens[idx..])?;
+
+            if parser.keep { res_vec.push(res.node) }
+            idx += res.length;
         }
-        
+
         Ok(ParserResult {
-            length,
-            node: AstNode::UntilCollection(nodes)
+            length: idx,
+            node: AstNode::Collection(res_vec)
         })
     }
 }
